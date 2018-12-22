@@ -1,11 +1,12 @@
 from flask_marshmallow.fields import Hyperlinks, URLFor
 from marshmallow import Schema, fields, validates, ValidationError
+
 from app import db, Page
 
 
 class PageCreateSchema(Schema):
-    title = fields.String()
-    content = fields.String()
+    title = fields.String(required=True)
+    content = fields.String(required=True)
 
     @validates('title')
     def validate_title(self, value):
@@ -15,13 +16,13 @@ class PageCreateSchema(Schema):
 
 
 class PageUpdateSchema(Schema):
-    content = fields.String()
+    content = fields.String(required=True,allow_none=True)
 
 
 class PageSchema(Schema):
     id = fields.Integer()
     title = fields.String()
-    text = fields.String()
+    content = fields.String()
     actual = fields.Integer()
 
     _links = Hyperlinks({
@@ -32,7 +33,7 @@ class PageSchema(Schema):
 
 
 class RevisionsSchema(Schema):
-    id = fields.Integer()
+    id = fields.Integer(required=True)
     actual = fields.Integer()
     url = URLFor('revisions', page_id='<page_id>', revision_id='<id>')
 

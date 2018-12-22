@@ -11,6 +11,7 @@ class APIListView(MethodView):
     def get(self):
         urls = (
             ('List all pages', url_for('page')),
+            ('Create page (POST)', url_for('page')),
             ('List all revisions of page', url_for('revisions', page_id=0)),
             ('Show page by revision',
              url_for('revisions', page_id=0, revision_id=0)),
@@ -34,11 +35,11 @@ class PageView(MethodView):
         form = request.form
         data, errors = self.schema_create().load(form)
         if errors:
-            return jsonify(errors), 422
+            return jsonify(errors), 500
 
         page = Page.create_with_revision(data)
         res = self.schema_list().dump(page)
-        return jsonify(res)
+        return jsonify(res.data)
 
     def get(self, page_id):
 
@@ -46,31 +47,44 @@ class PageView(MethodView):
             db.session.query(Page.id,
                              Page.title,
                              Revision.actual,
-                             Content.text)
-            .join(Revision, Revision.page_id == Page.id)
-            .join(Content, Revision.content_id == Content.id)
+                             Content.text.label("content"))
+                .join(Revision, Revision.page_id == Page.id)
+                .join(Content, Revision.content_id == Content.id)
+                .filter(Revision.actual == True)
         )
 
         if page_id is None:
             pages = query.all()
-            res, err = self.schema_list(many=True).dump(pages)
+            res, err = self.schema_list().dump(pages, many=True)
         else:
-            page = query.filter(Page.id == page_id).first()
-            res, err = self.schema_list().dump(page)
-
+            page_query = query.filter(Page.id == page_id)
+            if page_query.count():
+                page = page_query.first()
+                res, err = self.schema_list().dump(page)
+            else:
+                err = {'error': 'Looks like there are no such page'}
         if err:
-            return jsonify(err), 422
+            return jsonify(err), 500
+
+        # Kinda sanitize after Marshmallow
+        if 'data' in res:
+            res = res.data
 
         return jsonify(res)
 
     def put(self, page_id):
         form = request.form
         data, err = self.schema_update().load(form)
-        if err:
-            return jsonify(err), 422
+        if not err:
+            query = Page.query.filter_by(**{'id':page_id})
+            if query.count() > 0:
+                page = query.first().update_with_revision(data)
+                res, err = self.schema_list().dump(page)
+            else:
+                err = {'error': 'Looks like there are no such page'}
 
-        page = Page.query.get(page_id).update_with_revision(data)
-        res = self.schema_list().dump(page)
+        if err:
+            return jsonify(err), 500
         return jsonify(res)
 
 
@@ -95,17 +109,24 @@ class RevisionView(MethodView):
                         .filter(Revision.id == revision_id)
                         .first()
                         )
-            res, err = self.schema_single().dump(revision)
+            if revision:
+                res, err = self.schema_single().dump(revision)
+            else:
+                err = {'error': 'Looks like there are no such revision'}
 
         if err:
-            return jsonify(err), 422
+            return jsonify(err), 500
         return jsonify(res)
 
     def post(self, page_id, revision_id):
 
-        revision = Revision.query.get(revision_id).set_as_actual()
-        res, err = self.schema_single().dump(revision)
+        revision_query = Revision.query.filter_by(**{'id':revision_id})
+        if revision_query.count():
+            revision = revision_query.first().set_as_actual()
+            res, err = self.schema_single().dump(revision)
+        else:
+            err = {'error': 'Looks like there are no such revision'}
 
         if err:
-            return jsonify(err), 422
+            return jsonify(err), 500
         return jsonify(res)

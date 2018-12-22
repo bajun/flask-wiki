@@ -1,13 +1,25 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Text, Boolean, \
-    DateTime
-from sqlalchemy.orm import relationship
 from datetime import datetime
 
+from sqlalchemy import Column, Integer, String, ForeignKey, Text, Boolean, \
+    DateTime, MetaData
+from sqlalchemy.orm import relationship
+
 from app import db
+
+convention = {
+    "ix": 'ix_%(column_0_label)s',
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s"
+}
+
+metadata = MetaData(naming_convention=convention)
 
 
 class Page(db.Model):
     __tablename__ = 'page'
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String, index=True, unique=True)
     revision_latest = Column(String)
@@ -35,7 +47,7 @@ class Page(db.Model):
             'id': page.id,
             'title': page.title,
             'actual': revision.id,
-            'text': content.text
+            'content': content.text
         }
 
     def update_with_revision(self, data):
@@ -45,14 +57,14 @@ class Page(db.Model):
         db.session.add(revision)
         db.session.commit()
 
-        self.set_latest_revision(revision)
+        revision.set_as_actual()
         content.add_revision(revision)
 
         return {
             'id': self.id,
             'title': self.title,
             'actual': revision.id,
-            'text': content.text
+            'content': content.text
         }
 
     def set_latest_revision(self, revision):
@@ -65,10 +77,10 @@ class Content(db.Model):
     __tablename__ = 'content'
     id = Column(Integer, primary_key=True, autoincrement=True)
     text = Column(Text)
-    revision_id = Column(Integer, ForeignKey('revision.id'))
+    revision_id = Column(Integer, ForeignKey('revision.id', use_alter=True,
+                                             name='revision_fk'))
     revision = relationship("Revision", backref="content",
-                            foreign_keys="Revision.content_id",
-                            cascade="all,delete")
+                            foreign_keys="Revision.content_id")
 
     def add_revision(self, revision):
         self.revision_id = revision.id
@@ -79,8 +91,10 @@ class Content(db.Model):
 class Revision(db.Model):
     __tablename__ = 'revision'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    page_id = Column(Integer, ForeignKey('page.id'))
-    content_id = Column(Integer, ForeignKey('content.id'))
+    page_id = Column(Integer,
+                     ForeignKey('page.id', use_alter=True, name='page_fk'))
+    content_id = Column(Integer, ForeignKey('content.id', use_alter=True,
+                                            name='content_fk'))
     actual = Column(Boolean)
     add_date = Column(DateTime,
                       nullable=False,
